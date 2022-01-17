@@ -64,6 +64,8 @@ class _TrackingTabState extends State<TrackingTab>
 
   Timer? _sleepTimer;
 
+  late DateTime _startTime;
+
   @override
   bool get wantKeepAlive => true;
 
@@ -98,15 +100,20 @@ class _TrackingTabState extends State<TrackingTab>
     String timestamp = format.format(DateTime.now());
 
     String filename = _logDir + timestamp + "_hr.csv";
-    log("filename:" + filename);
+    // log("filename:" + filename);
 
     _logFileHR = File(_logDir + timestamp + "_hr.csv");
     _logFileAcc = File(_logDir + timestamp + "_acc.csv");
-    _logFileDur = File(_logDir + timestamp + "_dur.csv");
+    _logFileDur = File(_logDir + "durations.csv");
 
     await _writeFile(_logFileHR, "timestamp;timestamp raw;heart rate(bpm);\n");
     await _writeFile(
         _logFileAcc, "timestamp;timestamp raw;acc x;acc y;acc z;\n");
+
+    var durExists = await _logFileDur.exists();
+    if (!durExists) {
+      await _writeFile(_logFileDur, "start;stop;duration;\n");
+    }
 
     _trackingStopwatch.reset();
     _trackingStopwatch.start();
@@ -117,6 +124,8 @@ class _TrackingTabState extends State<TrackingTab>
             }));
 
     _startSleepTimer();
+
+    _startTime = DateTime.now();
 
     setState(() {
       _trackingStarted = true;
@@ -150,7 +159,18 @@ class _TrackingTabState extends State<TrackingTab>
       _trackingStarted = false;
       _trackingButtonText = "Start";
     });
-    await _writeFile(_logFileDur, _trackingDuration);
+
+    final DateFormat dateFormat = DateFormat('yyyy-MM-dd HH:mm:ss');
+    var now = DateTime.now();
+    String timestamp = dateFormat.format(now);
+
+    String csv = dateFormat.format(_startTime) +
+        ";" +
+        dateFormat.format(DateTime.now()) +
+        ";" +
+        _trackingDuration +
+        ";\n";
+    await _writeFile(_logFileDur, csv);
 
     log("TrackingTab stopped");
   }
