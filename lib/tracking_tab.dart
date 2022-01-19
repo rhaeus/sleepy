@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:flutter_blue/flutter_blue.dart';
+import 'package:spotify_sdk/models/player_state.dart';
 
 import 'package:spotify_sdk/spotify_sdk.dart';
 import 'dart:developer';
@@ -27,6 +28,9 @@ class TrackingTab extends StatefulWidget {
 
 class _TrackingTabState extends State<TrackingTab>
     with AutomaticKeepAliveClientMixin<TrackingTab> {
+  int _motionThreshold = 4;
+  int _hrOffsetThreshold = 10;
+
   bool _spotifyConnected = false;
 
   String _cosinussStatus = "Tap bluetooth icon to connect to Cosinuss";
@@ -41,6 +45,7 @@ class _TrackingTabState extends State<TrackingTab>
   late File _logFileHR;
   late File _logFileAcc;
   late File _logFileDur;
+  late File _logFileMotion;
 
   String _spotifyTrack = "Tap music icon to connect to Spotify";
   Icon _spotifyPlayPauseIcon = const Icon(Icons.play_arrow);
@@ -57,9 +62,10 @@ class _TrackingTabState extends State<TrackingTab>
   late Timer _trackingDurationUpdateTimer;
 
   int _heartRate = 0;
-  int _motion = 20;
+  int _motion = 0;
 
   // Queue<int> _heartRateQueue = Queue();
+  Queue<List<int>> _motionQueue = Queue();
 
   int _startingVolume = 0;
   int _currentVolume = 0;
@@ -101,14 +107,16 @@ class _TrackingTabState extends State<TrackingTab>
     var format = DateFormat('yyyy-MM-dd-HH-mm-ss');
     String timestamp = format.format(DateTime.now());
 
-    String filename = _logDir + timestamp + "_hr.csv";
+    // String filename = _logDir + timestamp + "_hr.csv";
     // log("filename:" + filename);
 
     _logFileHR = File(_logDir + timestamp + "_hr.csv");
     _logFileAcc = File(_logDir + timestamp + "_acc.csv");
+    _logFileMotion = File(_logDir + timestamp + "_motion.csv");
     _logFileDur = File(_logDir + "durations.csv");
 
     await _writeFile(_logFileHR, "timestamp;timestamp raw;heart rate(bpm);\n");
+    await _writeFile(_logFileMotion, "timestamp;timestamp raw;motion score;\n");
     await _writeFile(
         _logFileAcc, "timestamp;timestamp raw;acc x;acc y;acc z;\n");
 
@@ -139,8 +147,10 @@ class _TrackingTabState extends State<TrackingTab>
   void _startSleepTimer() {
     _sleepTimer?.cancel();
     if (_useSleepTimer) {
-      _sleepTimer =
-          Timer.periodic(_sleepTimerDuration, (Timer t) => {_sleepDetected()});
+      _sleepTimer = Timer(_sleepTimerDuration, () {
+        log("sleep timer triggered");
+        _sleepDetected();
+      });
     }
   }
 
@@ -213,12 +223,23 @@ class _TrackingTabState extends State<TrackingTab>
       // if (bpm != 0) {
       //   bpmLabel = bpm.toString() + " bpm";
       // }
+      if (_hrBaselineMeasure) {
+        _hrForBaseline.add(bpm);
+      }
 
       setState(() {
         _heartRate = bpm;
       });
+
+      if (bpm < _restingHeartRate - _hrOffsetThreshold) {
+        _possiblyAsleep();
+      }
     }
   }
+
+  Queue<List<int>> _accDiffQueue = Queue();
+  List<int> _currentMotion = [];
+  final int _accWindowSize = 10;
 
   Future<void> updateAccelerometer(rawData) async {
     Int8List bytes = Int8List.fromList(rawData);
@@ -246,12 +267,78 @@ class _TrackingTabState extends State<TrackingTab>
 
       _writeFile(_logFileAcc, csv);
 
+      // motion eval, root mean square of differential of acc signal
+      // differentiate signal
+      // square
+      // average
+      // root
+      if (_accDiffQueue.isNotEmpty) {
+        var oldest = _accDiffQueue.first;
+        List<int> newestDiff = [];
+        newestDiff.add(accX - _accDiffQueue.last[0]);
+        newestDiff.add(accY - _accDiffQueue.last[1]);
+        newestDiff.add(accZ - _accDiffQueue.last[2]);
+
+        for (int i = 0; i < 3; ++i) {
+          _currentMotion[i] = (_currentMotion[i] +
+                  newestDiff[i] * newestDiff[i] / _accWindowSize -
+                  oldest[i] * oldest[i] / _accWindowSize)
+              .round();
+        }
+
+        // remove oldes sample from queue
+        _accDiffQueue.removeFirst();
+
+        // add newest sample to queue
+        _accDiffQueue.add(newestDiff);
+
+        // motion value is average of rms
+        _motion = ((math.sqrt(_currentMotion[0]) +
+                    math.sqrt(_currentMotion[1]) +
+                    math.sqrt(_currentMotion[2])) /
+                3)
+            .round();
+
+        if (_motion > _motionThreshold) {
+          _motionDetected();
+        }
+
+        csv = timestamp +
+            ";" +
+            now.millisecondsSinceEpoch.toString() +
+            ";" +
+            _motion.toString() +
+            ";\n";
+
+        _writeFile(_logFileMotion, csv);
+      }
+
       // setState(() {
       //   _accX = accX.toString() + " (unknown unit)";
       //   _accY = accY.toString() + " (unknown unit)";
       //   _accZ = accZ.toString() + " (unknown unit)";
       // });
     }
+  }
+
+  void _setSpotifyPlayPauseIcon(bool isPaused) {
+    setState(() {
+      if (isPaused) {
+        _spotifyPlayPauseIcon = const Icon(Icons.play_arrow);
+      } else {
+        _spotifyPlayPauseIcon = const Icon(Icons.pause);
+      }
+    });
+  }
+
+  void _displaySpotifyTrack(PlayerState state) {
+    setState(() {
+      var trackname = state.track?.name;
+      var artistname = state.track?.artist.name;
+      if (trackname != null && artistname != null) {
+        _spotifyTrack = trackname + " - " + artistname;
+      }
+    });
   }
 
   void _connectCosinuss() {
@@ -356,22 +443,19 @@ class _TrackingTabState extends State<TrackingTab>
         clientId: spotify_config.clientId,
         redirectUrl: spotify_config.redirectUrl);
 
+    SpotifySdk.subscribePlayerState().listen((event) {
+      _spotifyIsPaused = event.isPaused;
+      _setSpotifyPlayPauseIcon(_spotifyIsPaused);
+      _displaySpotifyTrack(event);
+    });
+
     var state = await SpotifySdk.getPlayerState();
 
     setState(() {
-      var trackname = state?.track?.name;
-      var artistname = state?.track?.artist.name;
-      if (trackname != null && artistname != null) {
-        _spotifyTrack = trackname + " - " + artistname;
-      }
-
       if (state != null) {
         _spotifyIsPaused = state.isPaused;
-        if (_spotifyIsPaused) {
-          _spotifyPlayPauseIcon = const Icon(Icons.play_arrow);
-        } else {
-          _spotifyPlayPauseIcon = const Icon(Icons.pause);
-        }
+        _setSpotifyPlayPauseIcon(_spotifyIsPaused);
+        _displaySpotifyTrack(state);
       }
     });
     return _spotifyConnected;
@@ -409,8 +493,17 @@ class _TrackingTabState extends State<TrackingTab>
 
     setState(() {
       if (duration != null) {
+        _sleepTimerDuration = duration;
         _sleepTimerDurationDisplay = formatDuration(duration);
       }
+    });
+  }
+
+  Timer? _possiblyAsleepTimer;
+  void _possiblyAsleep() {
+    _possiblyAsleepTimer?.cancel();
+    _possiblyAsleepTimer = Timer(const Duration(minutes: 2), () {
+      _sleepDetected();
     });
   }
 
@@ -421,6 +514,36 @@ class _TrackingTabState extends State<TrackingTab>
       // we stop tracking
       log("no motion detected -> stop tracking");
       _stopTracking();
+    });
+  }
+
+  Timer? _hrBaseLineTimer;
+  bool _hrBaselineMeasure = false;
+  List<int> _hrForBaseline = [];
+  void _measureHRBaseline(Duration duration) {
+    _hrForBaseline.clear();
+    _hrBaselineMeasure = true;
+
+    showMessage(
+        context,
+        "Please wait " +
+            duration.inSeconds.toString() +
+            " seconds for measurement to complete");
+
+    _hrBaseLineTimer = Timer(duration, () {
+      showMessage(context, "Measurement complete");
+      log("HR baseline measurement done");
+      _hrBaselineMeasure = false;
+      setState(() {
+        if (_hrForBaseline.isNotEmpty) {
+          int sum =
+              _hrForBaseline.fold(0, (previous, current) => previous + current);
+          _restingHeartRate = (sum / _hrForBaseline.length).round();
+        } else {
+          _restingHeartRate = 0;
+        }
+        log("resting HR: " + _restingHeartRate.toString());
+      });
     });
   }
 
@@ -449,12 +572,13 @@ class _TrackingTabState extends State<TrackingTab>
     _currentVolume = await Volume.getVol;
     _startingVolume = _currentVolume;
     _rampVolume(2, 1);
-    _checkForMotion(const Duration(seconds: 10));
+    _checkForMotion(const Duration(minutes: 5));
   }
 
   void _motionDetected() {
     log("motion detected");
     _motionTimer?.cancel();
+    _possiblyAsleepTimer?.cancel();
     _rampVolume(_startingVolume, 1);
   }
 
@@ -504,18 +628,6 @@ class _TrackingTabState extends State<TrackingTab>
                   ),
                 ],
               )),
-              // Card(
-              //   child: SwitchListTile(
-              //     title: const Text('Lights'),
-              //     value: _useSleepTimer,
-              //     onChanged: (bool value) {
-              //       setState(() {
-              //         _useSleepTimer = value;
-              //       });
-              //     },
-              //     secondary: const Icon(Icons.lightbulb_outline),
-              //   ),
-              // ),
               Card(
                   child: Row(
                       crossAxisAlignment: CrossAxisAlignment.center,
@@ -528,7 +640,7 @@ class _TrackingTabState extends State<TrackingTab>
                     Text(
                       "Sleep Timer: " + _sleepTimerDurationDisplay,
                       style: TextStyle(
-                          fontSize: 20,
+                          fontSize: 15,
                           color: _useSleepTimer ? Colors.white : Colors.grey),
                     ),
                     Expanded(
@@ -543,6 +655,41 @@ class _TrackingTabState extends State<TrackingTab>
                           }),
                     )),
                   ])),
+              Card(
+                  child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                    const IconButton(
+                      iconSize: 40,
+                      color: Colors.white,
+                      disabledColor: Colors.white,
+                      onPressed: null,
+                      icon: Icon(Icons.favorite),
+                    ),
+                    Text(
+                      "Heart rate base line: " +
+                          _restingHeartRate.toString() +
+                          " bpm",
+                      style: TextStyle(
+                          fontSize: 15,
+                          color: _useSleepTimer ? Colors.white : Colors.grey),
+                    ),
+                    Expanded(
+                        child: Align(
+                            alignment: Alignment.centerRight,
+                            child: Padding(
+                                padding: const EdgeInsets.all(5),
+                                child: ElevatedButton(
+                                  onPressed: () {
+                                    _measureHRBaseline(
+                                        const Duration(seconds: 5));
+                                  },
+                                  child: const Text(
+                                    "Measure",
+                                    style: TextStyle(fontSize: 15),
+                                  ),
+                                )))),
+                  ])),
               Expanded(
                 child: Card(
                     child: Padding(
@@ -552,47 +699,6 @@ class _TrackingTabState extends State<TrackingTab>
                             const SizedBox(
                               height: 10,
                             ),
-                            // Row(
-                            //   crossAxisAlignment: CrossAxisAlignment.center,
-                            //   children: [
-                            //     Icon(Icons.monitor),
-
-                            //     Container(
-                            //         width: 50,
-                            //         child: TextField(
-                            //           controller: TextEditingController(
-                            //               text: _restingHeartRate.toString()),
-                            //           keyboardType: TextInputType.number,
-                            //           inputFormatters: [
-                            //             FilteringTextInputFormatter.digitsOnly,
-                            //           ],
-                            //           decoration: InputDecoration(
-                            //             // labelText: 'Enter Name',
-                            //             hintText: 'HR',
-                            //           ),
-                            //         )),
-
-                            //   ],
-                            // ),
-                            // Row(
-                            //     crossAxisAlignment: CrossAxisAlignment.center,
-                            //     children: [
-                            //       IconButton(
-                            //         iconSize: 40,
-                            //         onPressed:
-                            //             _useSleepTimer ? _pickSleepTimer : null,
-                            //         icon: const Icon(Icons.access_time),
-                            //       ),
-                            //       Text(
-                            //         "Sleep Timer: " + _sleepTimerDurationDisplay,
-                            //         style: TextStyle(
-                            //             fontSize: 20,
-                            //             color: _useSleepTimer
-                            //                 ? Colors.black
-                            //                 : Colors.grey),
-                            //       ),
-                            //     ]),
-
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                               children: [

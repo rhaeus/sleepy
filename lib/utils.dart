@@ -1,4 +1,4 @@
-// import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 String formatDuration(Duration duration) {
@@ -23,4 +23,10 @@ String formatDate(DateTime dt) {
 String formatTime(DateTime dt) {
   final DateFormat dateFormat = DateFormat('HH:mm:ss');
   return dateFormat.format(dt);
+}
+
+void showMessage(BuildContext context, String msg) {
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    content: Text(msg),
+  ));
 }
