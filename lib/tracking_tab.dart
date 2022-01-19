@@ -16,6 +16,8 @@ import 'dart:math' as math;
 
 import 'spotify_config.dart' as spotify_config;
 
+import 'utils.dart';
+
 class TrackingTab extends StatefulWidget {
   const TrackingTab({Key? key}) : super(key: key);
 
@@ -120,7 +122,7 @@ class _TrackingTabState extends State<TrackingTab>
     _trackingDurationUpdateTimer = Timer.periodic(
         const Duration(seconds: 1),
         (Timer t) => setState(() {
-              _trackingDuration = _formatDuration(_trackingStopwatch.elapsed);
+              _trackingDuration = formatDuration(_trackingStopwatch.elapsed);
             }));
 
     _startSleepTimer();
@@ -399,10 +401,6 @@ class _TrackingTabState extends State<TrackingTab>
     }
   }
 
-  String _formatDuration(Duration duration) {
-    return "${duration.inHours.toString().padLeft(2, '0')}:${duration.inMinutes.remainder(60).toString().padLeft(2, '0')}:${(duration.inSeconds.remainder(60).toString().padLeft(2, '0'))}";
-  }
-
   void _pickSleepTimer() async {
     var duration = await showDurationPicker(
       context: context,
@@ -411,7 +409,7 @@ class _TrackingTabState extends State<TrackingTab>
 
     setState(() {
       if (duration != null) {
-        _sleepTimerDurationDisplay = _formatDuration(duration);
+        _sleepTimerDurationDisplay = formatDuration(duration);
       }
     });
   }

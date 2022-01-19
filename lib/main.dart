@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'tracking_tab.dart';
+import 'stats_tab.dart';
 
 void main() {
   runApp(const TabBarApp());
@@ -8,6 +9,8 @@ void main() {
 
 class TabBarApp extends StatelessWidget {
   const TabBarApp({Key? key}) : super(key: key);
+
+  // final String _logDir = '/storage/emulated/0/Documents/sleepy/log/';
 
   @override
   Widget build(BuildContext context) {
@@ -40,8 +43,9 @@ class TabBarApp extends StatelessWidget {
             children: [
               // Icon(Icons.directions_car),
               TrackingTab(),
+              StatsTab(),
               // const MyHomePage(title: 'Flutter Demo Home Page'),
-              Icon(Icons.directions_transit),
+              // Icon(Icons.directions_transit),
               // Icon(Icons.directions_bike),
             ],
           ),
