@@ -26,25 +26,28 @@ class _StatsRecordDetailPage extends State<RecordDetailPage> {
   // _StatsRecordDetailPage() {}
 
   List<charts.Series<TimeSeriesData, DateTime>> hrSeries = [];
-
   List<TimeSeriesData> hrList = [];
+
+  List<charts.Series<TimeSeriesData, DateTime>> motionSeries = [];
+  List<TimeSeriesData> motionList = [];
+
   final String _logDir = '/storage/emulated/0/Documents/sleepy/log/';
+
+  int _minHr = 500;
+  int _maxHR = -1;
+
+  int _minMotion = 500;
+  int _maxMotion = -1;
 
   @override
   void initState() {
     loadHRData();
+    loadMotionData();
   }
 
-  void loadHRData() async {
-    File hrFile = File(_logDir + widget.record.filePrefix + "_hr.csv");
-    var ex = await hrFile.exists();
+  void loadMotionData() async {
+    File hrFile = File(_logDir + widget.record.filePrefix + "_motion.csv");
 
-    if (ex) {
-      log("exist");
-      // log(len.toString());
-    } else {
-      log("not exist");
-    }
     await hrFile
         .openRead()
         .transform(utf8.decoder)
@@ -53,7 +56,40 @@ class _StatsRecordDetailPage extends State<RecordDetailPage> {
       log(line);
       if (!line.startsWith("timestamp")) {
         setState(() {
-          hrList.add(TimeSeriesData.parseFromCsv(line));
+          var motion = TimeSeriesData.parseFromCsv(line);
+          motionList.add(motion);
+          if (motion.value < _minMotion) {
+            _minMotion = motion.value;
+          } else if (motion.value > _maxMotion) {
+            _maxMotion = motion.value;
+          }
+        });
+      }
+    });
+
+    setState(() {
+      _fillMotionSeries();
+    });
+  }
+
+  void loadHRData() async {
+    File hrFile = File(_logDir + widget.record.filePrefix + "_hr.csv");
+
+    await hrFile
+        .openRead()
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .forEach((line) {
+      log(line);
+      if (!line.startsWith("timestamp")) {
+        setState(() {
+          var hr = TimeSeriesData.parseFromCsv(line);
+          hrList.add(hr);
+          if (hr.value < _minHr) {
+            _minHr = hr.value;
+          } else if (hr.value > _maxHR) {
+            _maxHR = hr.value;
+          }
         });
       }
     });
@@ -61,6 +97,18 @@ class _StatsRecordDetailPage extends State<RecordDetailPage> {
     setState(() {
       _fillHRSeries();
     });
+  }
+
+  void _fillMotionSeries() {
+    motionSeries = [
+      charts.Series<TimeSeriesData, DateTime>(
+          id: 'Motion',
+          colorFn: (_, __) => charts.MaterialPalette.teal.shadeDefault,
+          domainFn: (TimeSeriesData data, _) => data.timestamp,
+          measureFn: (TimeSeriesData data, _) => data.value,
+          data: hrList,
+          displayName: 'Motion')
+    ];
   }
 
   void _fillHRSeries() {
@@ -130,20 +178,76 @@ class _StatsRecordDetailPage extends State<RecordDetailPage> {
                           fontSize: 15,
                           color: charts.MaterialPalette.white,
                         )),
+                        // tickProviderSpec:
+                        //     charts.DayTickProviderSpec(increments: [1]),
                         tickFormatterSpec: charts.AutoDateTimeTickFormatterSpec(
-                            day: charts.TimeFormatterSpec(
-                                format: 'MM/d', transitionFormat: 'MM/dd'))),
-                    primaryMeasureAxis: const charts.NumericAxisSpec(
-                        renderSpec: charts.GridlineRendererSpec(
+                            minute: charts.TimeFormatterSpec(
+                                format: 'HH:mm', transitionFormat: 'HH:mm'))),
+                    primaryMeasureAxis: charts.NumericAxisSpec(
+                      tickProviderSpec:
+                          const charts.BasicNumericTickProviderSpec(
+                              desiredTickCount: 15),
+                      renderSpec: charts.GridlineRendererSpec(
 
-                            // Tick and Label styling here.
+                          // Tick and Label styling here.
+                          labelStyle: const charts.TextStyleSpec(
+                              fontSize: 15, // size in Pts.
+                              color: charts.MaterialPalette.white),
+
+                          // Change the line colors to match text color.
+                          lineStyle: charts.LineStyleSpec(
+                              color: charts.Color.fromHex(code: "#808080"))),
+                      viewport: charts.NumericExtents(_minHr - 5, _maxHR + 5),
+                      // tickProviderSpec:
+                      //     charts.BasicNumericTickProviderSpec(zeroBound: false),
+                    ),
+
+                    // Optionally pass in a [DateTimeFactory] used by the chart. The factory
+                    // should create the same type of [DateTime] as the data provided. If none
+                    // specified, the default creates local date time.
+                    dateTimeFactory: const charts.LocalDateTimeFactory()),
+              ),
+              const SizedBox(
+                height: 20,
+              ),
+              const Text(
+                "Motion",
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              Container(
+                width: double.infinity,
+                height: 200,
+                child: charts.TimeSeriesChart(motionSeries,
+                    animate: true,
+                    domainAxis: const charts.DateTimeAxisSpec(
+                        renderSpec: charts.SmallTickRendererSpec(
                             labelStyle: charts.TextStyleSpec(
-                                fontSize: 15, // size in Pts.
-                                color: charts.MaterialPalette.white),
+                          fontSize: 15,
+                          color: charts.MaterialPalette.white,
+                        )),
+                        // tickProviderSpec:
+                        //     charts.DayTickProviderSpec(increments: [1]),
+                        tickFormatterSpec: charts.AutoDateTimeTickFormatterSpec(
+                            minute: charts.TimeFormatterSpec(
+                                format: 'HH:mm', transitionFormat: 'HH:mm'))),
+                    primaryMeasureAxis: charts.NumericAxisSpec(
+                      tickProviderSpec:
+                          const charts.BasicNumericTickProviderSpec(
+                              desiredTickCount: 15),
+                      renderSpec: charts.GridlineRendererSpec(
 
-                            // Change the line colors to match text color.
-                            lineStyle: charts.LineStyleSpec(
-                                color: charts.MaterialPalette.white))),
+                          // Tick and Label styling here.
+                          labelStyle: const charts.TextStyleSpec(
+                              fontSize: 15, // size in Pts.
+                              color: charts.MaterialPalette.white),
+
+                          // Change the line colors to match text color.
+                          lineStyle: charts.LineStyleSpec(
+                              color: charts.Color.fromHex(code: "#808080"))),
+                      viewport: charts.NumericExtents(_minMotion, _maxMotion),
+                      // tickProviderSpec:
+                      //     charts.BasicNumericTickProviderSpec(zeroBound: false),
+                    ),
 
                     // Optionally pass in a [DateTimeFactory] used by the chart. The factory
                     // should create the same type of [DateTime] as the data provided. If none
