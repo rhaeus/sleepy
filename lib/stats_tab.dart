@@ -15,7 +15,8 @@ class StatsTab extends StatefulWidget {
 }
 
 class _StatsTabState extends State<StatsTab>
-    with AutomaticKeepAliveClientMixin<StatsTab> {
+// with AutomaticKeepAliveClientMixin<StatsTab>
+{
   final String _logDir = '/storage/emulated/0/Documents/sleepy/log/';
   List<Record> recordList = [];
   List<charts.Series<Record, DateTime>> durationSeries = [];
@@ -25,10 +26,13 @@ class _StatsTabState extends State<StatsTab>
   Duration _avgDuration = Duration();
 
   _StatsTabState() {
-    getRecords();
+    Future.delayed(Duration.zero, () async {
+      //your async 'await' codes goes here
+      await getRecords();
+    });
   }
 
-  void getRecords() async {
+  Future<void> getRecords() async {
     File _logFileDur = File(_logDir + "durations.csv");
     await _logFileDur
         .openRead()
@@ -79,8 +83,8 @@ class _StatsTabState extends State<StatsTab>
   //       Record(date: "18.01.2022", duration: "00:14:00", filePrefix: "krhje"));
   // }
 
-  @override
-  bool get wantKeepAlive => true;
+  // @override
+  // bool get wantKeepAlive => true;
 
   @override
   Widget build(BuildContext context) {
@@ -109,17 +113,24 @@ class _StatsTabState extends State<StatsTab>
                     tickFormatterSpec: charts.AutoDateTimeTickFormatterSpec(
                         day: charts.TimeFormatterSpec(
                             format: 'MM/d', transitionFormat: 'MM/dd'))),
-                primaryMeasureAxis: const charts.NumericAxisSpec(
-                    renderSpec: charts.GridlineRendererSpec(
+                primaryMeasureAxis: charts.NumericAxisSpec(
+                  tickProviderSpec: const charts.BasicNumericTickProviderSpec(
+                      desiredTickCount: 10),
+                  renderSpec: charts.GridlineRendererSpec(
 
-                        // Tick and Label styling here.
-                        labelStyle: charts.TextStyleSpec(
-                            fontSize: 15, // size in Pts.
-                            color: charts.MaterialPalette.white),
+                      // Tick and Label styling here.
+                      labelStyle: const charts.TextStyleSpec(
+                          fontSize: 15, // size in Pts.
+                          color: charts.MaterialPalette.white),
 
-                        // Change the line colors to match text color.
-                        lineStyle: charts.LineStyleSpec(
-                            color: charts.MaterialPalette.white))),
+                      // Change the line colors to match text color.
+                      lineStyle: charts.LineStyleSpec(
+                          color: charts.Color.fromHex(code: "#808080"))),
+                  viewport: charts.NumericExtents(
+                      _minDuration.inMinutes, _maxDuration.inMinutes),
+                ),
+                // lineStyle: charts.LineStyleSpec(
+                //     color: charts.MaterialPalette.white))),
 
                 // Optionally pass in a [DateTimeFactory] used by the chart. The factory
                 // should create the same type of [DateTime] as the data provided. If none
