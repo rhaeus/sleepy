@@ -210,7 +210,7 @@ class RecordCard extends StatelessWidget {
               padding: const EdgeInsets.all(15.0),
               alignment: Alignment.centerLeft,
               child: Text(
-                formatDate(item.start),
+                formatDateTime(item.start),
                 style: textStyle,
               )),
           Expanded(

@@ -28,8 +28,8 @@ class TrackingTab extends StatefulWidget {
 
 class _TrackingTabState extends State<TrackingTab>
     with AutomaticKeepAliveClientMixin<TrackingTab> {
-  int _motionThreshold = 4;
-  int _hrOffsetThreshold = 10;
+  final int _motionThreshold = 2;
+  final int _hrOffsetThreshold = 10;
 
   bool _spotifyConnected = false;
 
@@ -51,8 +51,8 @@ class _TrackingTabState extends State<TrackingTab>
   Icon _spotifyPlayPauseIcon = const Icon(Icons.play_arrow);
   bool _spotifyIsPaused = true;
 
-  Duration _sleepTimerDuration = const Duration(minutes: 30);
-  String _sleepTimerDurationDisplay = "00:30:00";
+  Duration _sleepTimerDuration = const Duration(seconds: 10);
+  String _sleepTimerDurationDisplay = "00:00:10";
   bool _useSleepTimer = true;
 
   int _restingHeartRate = 70;
@@ -63,9 +63,6 @@ class _TrackingTabState extends State<TrackingTab>
 
   int _heartRate = 0;
   int _motion = 0;
-
-  // Queue<int> _heartRateQueue = Queue();
-  Queue<List<int>> _motionQueue = Queue();
 
   int _startingVolume = 0;
   int _currentVolume = 0;
@@ -94,24 +91,17 @@ class _TrackingTabState extends State<TrackingTab>
     }
   }
 
-  Future<void> _startTracking() async {
-    if (_trackingStarted) {
-      log("TrackingTab already started");
-      return;
-    }
-
+  Future<void> _initVolume() async {
     Volume.controlVolume(AudioManager.STREAM_MUSIC);
     _startingVolume = await Volume.getVol;
     _currentVolume = _startingVolume;
+  }
 
+  Future<void> _initLogFiles() async {
     var format = DateFormat('yyyy-MM-dd-HH-mm-ss');
     String timestamp = format.format(DateTime.now());
 
-    // String filename = _logDir + timestamp + "_hr.csv";
-    // log("filename:" + filename);
-
     _logFileHR = File(_logDir + timestamp + "_hr.csv");
-    // _logFileAcc = File(_logDir + timestamp + "_acc.csv");
     _logFileMotion = File(_logDir + timestamp + "_motion.csv");
     _logFileDur = File(_logDir + "durations.csv");
 
@@ -119,23 +109,33 @@ class _TrackingTabState extends State<TrackingTab>
         _logFileHR, "timestamp;timestamp (milliseconds);heart rate(bpm);\n");
     await _writeFile(_logFileMotion,
         "timestamp;timestamp (milliseconds);motion score;acc x;acc y;acc z;\n");
-    // await _writeFile(
-    //     _logFileAcc, "timestamp;timestamp raw;acc x;acc y;acc z;\n");
 
     var durExists = await _logFileDur.exists();
     if (!durExists) {
       await _writeFile(_logFileDur, "start;stop;duration;\n");
     }
+  }
 
+  void _startTrackingStopWatch() {
     _trackingStopwatch.reset();
     _trackingStopwatch.start();
     _trackingDurationUpdateTimer = Timer.periodic(
         const Duration(seconds: 1),
         (Timer t) => setState(() {
               _trackingDuration = formatDuration(_trackingStopwatch.elapsed);
-              // _motion = _motion;
             }));
+  }
 
+  Future<void> _startTracking() async {
+    if (_trackingStarted) {
+      log("TrackingTab already started");
+      return;
+    }
+
+    await _initVolume();
+    await _initLogFiles();
+
+    _startTrackingStopWatch();
     _startSleepTimer();
 
     _startTime = DateTime.now();
@@ -160,7 +160,7 @@ class _TrackingTabState extends State<TrackingTab>
   void _startSleepTimer() {
     _sleepTimer?.cancel();
     if (_useSleepTimer) {
-      _sleepTimer = Timer(_sleepTimerDuration, () {
+      _sleepTimer = Timer.periodic(_sleepTimerDuration, (Timer t) {
         log("sleep timer triggered");
         _sleepDetected();
       });
@@ -186,9 +186,6 @@ class _TrackingTabState extends State<TrackingTab>
     });
 
     final DateFormat dateFormat = DateFormat('yyyy-MM-dd HH:mm:ss');
-    var now = DateTime.now();
-    String timestamp = dateFormat.format(now);
-
     String csv = dateFormat.format(_startTime) +
         ";" +
         dateFormat.format(DateTime.now()) +
@@ -248,18 +245,19 @@ class _TrackingTabState extends State<TrackingTab>
       });
 
       if (bpm < _restingHeartRate - _hrOffsetThreshold) {
-        _possiblyAsleep();
+        // _possiblyAsleep();
+        _sleepDetected();
       }
     }
   }
 
-  Queue<List<double>> _accDiffQueue = Queue();
+  final Queue<List<double>> _accDiffQueue = Queue();
   List<double> _currentMotion = [0, 0, 0];
-  List<double> _previousAcc = [0, 0, 0];
+  final List<double> _previousAcc = [0, 0, 0];
   final double _accWindowSize = 10;
 
   int _motionWriteBufferCount = 0;
-  List<String> _motionWriteBuffer = [];
+  final List<String> _motionWriteBuffer = [];
 
   Future<void> updateAccelerometer(rawData) async {
     Int8List bytes = Int8List.fromList(rawData);
@@ -273,19 +271,6 @@ class _TrackingTabState extends State<TrackingTab>
       final DateFormat format = DateFormat('yyyy-MM-dd HH:mm:ss');
       var now = DateTime.now();
       String timestamp = format.format(now);
-
-      // String csv = timestamp +
-      //     ";" +
-      //     now.millisecondsSinceEpoch.toString() +
-      //     ";" +
-      //     accX.toString() +
-      //     ";" +
-      //     accY.toString() +
-      //     ";" +
-      //     accZ.toString() +
-      //     ";\n";
-
-      // _writeFile(_logFileAcc, csv);
 
       // motion eval, root mean square of differential of acc signal
       // differentiate signal
@@ -303,7 +288,6 @@ class _TrackingTabState extends State<TrackingTab>
         _currentMotion[i] = (_currentMotion[i] +
             (newestDiff[i] * newestDiff[i]) / _accWindowSize -
             (oldest[i] * oldest[i]) / _accWindowSize);
-        // .round();
       }
 
       // remove oldes sample from queue
@@ -347,31 +331,9 @@ class _TrackingTabState extends State<TrackingTab>
         _motionWriteBufferCount = 0;
       }
 
-      // csv = timestamp +
-      //     ";" +
-      //     now.millisecondsSinceEpoch.toString() +
-      //     ";" +
-      //     _motion.toString() +
-      //     ";\n";
-
-      // }
-
       _previousAcc[0] = accX.toDouble();
       _previousAcc[1] = accY.toDouble();
       _previousAcc[2] = accZ.toDouble();
-      // else {
-      //   List<int> newestDiff = [];
-      //   newestDiff.add(accX - _accDiffQueue.last[0]);
-      //   newestDiff.add(accY - _accDiffQueue.last[1]);
-      //   newestDiff.add(accZ - _accDiffQueue.last[2]);
-
-      // }
-
-      // setState(() {
-      //   _accX = accX.toString() + " (unknown unit)";
-      //   _accY = accY.toString() + " (unknown unit)";
-      //   _accZ = accZ.toString() + " (unknown unit)";
-      // });
     }
   }
 
@@ -553,13 +515,13 @@ class _TrackingTabState extends State<TrackingTab>
     });
   }
 
-  Timer? _possiblyAsleepTimer;
-  void _possiblyAsleep() {
-    _possiblyAsleepTimer?.cancel();
-    _possiblyAsleepTimer = Timer(const Duration(minutes: 2), () {
-      _sleepDetected();
-    });
-  }
+  // Timer? _possiblyAsleepTimer;
+  // void _possiblyAsleep() {
+  //   _possiblyAsleepTimer?.cancel();
+  //   _possiblyAsleepTimer = Timer(const Duration(minutes: 2), () {
+  //     _sleepDetected();
+  //   });
+  // }
 
   Timer? _motionTimer;
   void _checkForMotion(Duration duration) {
@@ -569,6 +531,13 @@ class _TrackingTabState extends State<TrackingTab>
       log("no motion detected -> stop tracking");
       _stopTracking();
     });
+  }
+
+  void _motionDetected() {
+    log("motion detected");
+    _motionTimer?.cancel();
+    // _possiblyAsleepTimer?.cancel();
+    _rampVolume(_startingVolume, 1);
   }
 
   Timer? _hrBaseLineTimer;
@@ -627,13 +596,6 @@ class _TrackingTabState extends State<TrackingTab>
     _startingVolume = _currentVolume;
     _rampVolume(2, 1);
     _checkForMotion(const Duration(minutes: 5));
-  }
-
-  void _motionDetected() {
-    log("motion detected");
-    _motionTimer?.cancel();
-    _possiblyAsleepTimer?.cancel();
-    _rampVolume(_startingVolume, 1);
   }
 
   @override

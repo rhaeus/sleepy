@@ -25,6 +25,11 @@ String formatTime(DateTime dt) {
   return dateFormat.format(dt);
 }
 
+String formatDateTime(DateTime dt) {
+  final DateFormat dateFormat = DateFormat('yyyy-MM-dd HH:mm:ss');
+  return dateFormat.format(dt);
+}
+
 void showMessage(BuildContext context, String msg) {
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
     content: Text(msg),
