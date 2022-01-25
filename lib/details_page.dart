@@ -33,11 +33,11 @@ class _StatsRecordDetailPage extends State<RecordDetailPage> {
 
   final String _logDir = '/storage/emulated/0/Documents/sleepy/log/';
 
-  int _minHr = 500;
-  int _maxHR = -1;
+  double _minHr = 500;
+  double _maxHR = -1;
 
-  int _minMotion = 500;
-  int _maxMotion = -1;
+  double _minMotion = 500;
+  double _maxMotion = -1;
 
   @override
   void initState() {
@@ -45,23 +45,27 @@ class _StatsRecordDetailPage extends State<RecordDetailPage> {
     loadMotionData();
   }
 
-  void loadMotionData() async {
-    File hrFile = File(_logDir + widget.record.filePrefix + "_motion.csv");
+  Future<void> loadMotionData() async {
+    File motionFile = File(_logDir + widget.record.filePrefix + "_motion.csv");
+    _minMotion = 500;
+    _maxMotion = -1;
 
-    await hrFile
+    await motionFile
         .openRead()
         .transform(utf8.decoder)
         .transform(const LineSplitter())
         .forEach((line) {
       log(line);
-      if (!line.startsWith("timestamp")) {
+      if (!line.startsWith("timestamp") && line.isNotEmpty) {
         setState(() {
           var motion = TimeSeriesData.parseFromCsv(line);
-          motionList.add(motion);
-          if (motion.value < _minMotion) {
-            _minMotion = motion.value;
-          } else if (motion.value > _maxMotion) {
-            _maxMotion = motion.value;
+          if (motion != null) {
+            motionList.add(motion);
+            if (motion.value < _minMotion) {
+              _minMotion = motion.value;
+            } else if (motion.value > _maxMotion) {
+              _maxMotion = motion.value;
+            }
           }
         });
       }
@@ -81,14 +85,16 @@ class _StatsRecordDetailPage extends State<RecordDetailPage> {
         .transform(const LineSplitter())
         .forEach((line) {
       log(line);
-      if (!line.startsWith("timestamp")) {
+      if (!line.startsWith("timestamp") && line.isNotEmpty) {
         setState(() {
           var hr = TimeSeriesData.parseFromCsv(line);
-          hrList.add(hr);
-          if (hr.value < _minHr) {
-            _minHr = hr.value;
-          } else if (hr.value > _maxHR) {
-            _maxHR = hr.value;
+          if (hr != null) {
+            hrList.add(hr);
+            if (hr.value < _minHr) {
+              _minHr = hr.value;
+            } else if (hr.value > _maxHR) {
+              _maxHR = hr.value;
+            }
           }
         });
       }
@@ -106,7 +112,7 @@ class _StatsRecordDetailPage extends State<RecordDetailPage> {
           colorFn: (_, __) => charts.MaterialPalette.teal.shadeDefault,
           domainFn: (TimeSeriesData data, _) => data.timestamp,
           measureFn: (TimeSeriesData data, _) => data.value,
-          data: hrList,
+          data: motionList,
           displayName: 'Motion')
     ];
   }
@@ -262,20 +268,28 @@ class _StatsRecordDetailPage extends State<RecordDetailPage> {
 
 class TimeSeriesData {
   final DateTime timestamp;
-  final int value;
+  final double value;
 
   TimeSeriesData({required this.timestamp, required this.value});
 
-  static TimeSeriesData parseFromCsv(String csv) {
+  static TimeSeriesData? parseFromCsv(String csv) {
     var items = csv.split(";");
+    if (items.length < 3) {
+      return null;
+    }
     String startDate =
         items[0].split(" ")[0]; // get date of date and time string
     String startTime =
         items[0].split(" ")[1]; // get time of date and time string
 
-    var timestamp = DateFormat('yyyy-MM-dd HH:mm:ss').parse(items[0]);
-
-    var value = int.parse(items[2]);
-    return TimeSeriesData(timestamp: timestamp, value: value);
+    try {
+      // var timestamp = DateFormat('yyyy-MM-dd HH:mm:ss').parse(items[0]);
+      int milliseconds = int.parse(items[1]);
+      var timestamp = DateTime.fromMillisecondsSinceEpoch(milliseconds);
+      var value = double.parse(items[2]);
+      return TimeSeriesData(timestamp: timestamp, value: value);
+    } catch (FormatException) {
+      return null;
+    }
   }
 }

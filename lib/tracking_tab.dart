@@ -43,7 +43,7 @@ class _TrackingTabState extends State<TrackingTab>
 
   final String _logDir = '/storage/emulated/0/Documents/sleepy/log/';
   late File _logFileHR;
-  late File _logFileAcc;
+  // late File _logFileAcc;
   late File _logFileDur;
   late File _logFileMotion;
 
@@ -111,14 +111,16 @@ class _TrackingTabState extends State<TrackingTab>
     // log("filename:" + filename);
 
     _logFileHR = File(_logDir + timestamp + "_hr.csv");
-    _logFileAcc = File(_logDir + timestamp + "_acc.csv");
+    // _logFileAcc = File(_logDir + timestamp + "_acc.csv");
     _logFileMotion = File(_logDir + timestamp + "_motion.csv");
     _logFileDur = File(_logDir + "durations.csv");
 
-    await _writeFile(_logFileHR, "timestamp;timestamp raw;heart rate(bpm);\n");
-    await _writeFile(_logFileMotion, "timestamp;timestamp raw;motion score;\n");
     await _writeFile(
-        _logFileAcc, "timestamp;timestamp raw;acc x;acc y;acc z;\n");
+        _logFileHR, "timestamp;timestamp (milliseconds);heart rate(bpm);\n");
+    await _writeFile(_logFileMotion,
+        "timestamp;timestamp (milliseconds);motion score;acc x;acc y;acc z;\n");
+    // await _writeFile(
+    //     _logFileAcc, "timestamp;timestamp raw;acc x;acc y;acc z;\n");
 
     var durExists = await _logFileDur.exists();
     if (!durExists) {
@@ -131,13 +133,24 @@ class _TrackingTabState extends State<TrackingTab>
         const Duration(seconds: 1),
         (Timer t) => setState(() {
               _trackingDuration = formatDuration(_trackingStopwatch.elapsed);
+              // _motion = _motion;
             }));
 
     _startSleepTimer();
 
     _startTime = DateTime.now();
 
+    _accDiffQueue.clear();
+    for (int i = 0; i < _accWindowSize; ++i) {
+      _accDiffQueue.add([0, 0, 0]);
+    }
+    _currentMotion = [0, 0, 0];
+
+    _motionWriteBufferCount = 0;
+    _motionWriteBuffer.clear();
+
     setState(() {
+      _motion = 0;
       _trackingStarted = true;
       _trackingButtonText = "Stop";
     });
@@ -205,6 +218,13 @@ class _TrackingTabState extends State<TrackingTab>
       bpm = (((bpm >> 8) & 0xFF) | ((bpm << 8) & 0xFF00));
     }
 
+    if (_hrBaselineMeasure) {
+      _hrForBaseline.add(bpm);
+      setState(() {
+        _heartRate = bpm;
+      });
+    }
+
     if (_trackingStarted) {
       final DateFormat format = DateFormat('yyyy-MM-dd HH:mm:ss');
       var now = DateTime.now();
@@ -223,10 +243,6 @@ class _TrackingTabState extends State<TrackingTab>
       // if (bpm != 0) {
       //   bpmLabel = bpm.toString() + " bpm";
       // }
-      if (_hrBaselineMeasure) {
-        _hrForBaseline.add(bpm);
-      }
-
       setState(() {
         _heartRate = bpm;
       });
@@ -237,9 +253,13 @@ class _TrackingTabState extends State<TrackingTab>
     }
   }
 
-  Queue<List<int>> _accDiffQueue = Queue();
-  List<int> _currentMotion = [];
-  final int _accWindowSize = 10;
+  Queue<List<double>> _accDiffQueue = Queue();
+  List<double> _currentMotion = [0, 0, 0];
+  List<double> _previousAcc = [0, 0, 0];
+  final double _accWindowSize = 10;
+
+  int _motionWriteBufferCount = 0;
+  List<String> _motionWriteBuffer = [];
 
   Future<void> updateAccelerometer(rawData) async {
     Int8List bytes = Int8List.fromList(rawData);
@@ -254,9 +274,63 @@ class _TrackingTabState extends State<TrackingTab>
       var now = DateTime.now();
       String timestamp = format.format(now);
 
+      // String csv = timestamp +
+      //     ";" +
+      //     now.millisecondsSinceEpoch.toString() +
+      //     ";" +
+      //     accX.toString() +
+      //     ";" +
+      //     accY.toString() +
+      //     ";" +
+      //     accZ.toString() +
+      //     ";\n";
+
+      // _writeFile(_logFileAcc, csv);
+
+      // motion eval, root mean square of differential of acc signal
+      // differentiate signal
+      // square
+      // average
+      // root
+      // if (_accDiffQueue.isNotEmpty) {
+      var oldest = _accDiffQueue.last;
+      List<double> newestDiff = [];
+      newestDiff.add(accX.toDouble() - _previousAcc[0]);
+      newestDiff.add(accY.toDouble() - _previousAcc[1]);
+      newestDiff.add(accZ.toDouble() - _previousAcc[2]);
+
+      for (int i = 0; i < 3; ++i) {
+        _currentMotion[i] = (_currentMotion[i] +
+            (newestDiff[i] * newestDiff[i]) / _accWindowSize -
+            (oldest[i] * oldest[i]) / _accWindowSize);
+        // .round();
+      }
+
+      // remove oldes sample from queue
+      _accDiffQueue.removeLast();
+
+      // add newest sample to queue
+      _accDiffQueue.addFirst(newestDiff);
+
+      // motion value is average of rms
+      // double _motionD = 0;
+      double _motionD = ((math.sqrt(_currentMotion[0]) +
+              math.sqrt(_currentMotion[1]) +
+              math.sqrt(_currentMotion[2])) /
+          3);
+      setState(() {
+        _motion = _motionD.round();
+      });
+
+      if (_motionD > _motionThreshold) {
+        _motionDetected();
+      }
+
       String csv = timestamp +
           ";" +
           now.millisecondsSinceEpoch.toString() +
+          ";" +
+          _motionD.toString() +
           ";" +
           accX.toString() +
           ";" +
@@ -265,53 +339,33 @@ class _TrackingTabState extends State<TrackingTab>
           accZ.toString() +
           ";\n";
 
-      _writeFile(_logFileAcc, csv);
-
-      // motion eval, root mean square of differential of acc signal
-      // differentiate signal
-      // square
-      // average
-      // root
-      if (_accDiffQueue.isNotEmpty) {
-        var oldest = _accDiffQueue.first;
-        List<int> newestDiff = [];
-        newestDiff.add(accX - _accDiffQueue.last[0]);
-        newestDiff.add(accY - _accDiffQueue.last[1]);
-        newestDiff.add(accZ - _accDiffQueue.last[2]);
-
-        for (int i = 0; i < 3; ++i) {
-          _currentMotion[i] = (_currentMotion[i] +
-                  newestDiff[i] * newestDiff[i] / _accWindowSize -
-                  oldest[i] * oldest[i] / _accWindowSize)
-              .round();
-        }
-
-        // remove oldes sample from queue
-        _accDiffQueue.removeFirst();
-
-        // add newest sample to queue
-        _accDiffQueue.add(newestDiff);
-
-        // motion value is average of rms
-        _motion = ((math.sqrt(_currentMotion[0]) +
-                    math.sqrt(_currentMotion[1]) +
-                    math.sqrt(_currentMotion[2])) /
-                3)
-            .round();
-
-        if (_motion > _motionThreshold) {
-          _motionDetected();
-        }
-
-        csv = timestamp +
-            ";" +
-            now.millisecondsSinceEpoch.toString() +
-            ";" +
-            _motion.toString() +
-            ";\n";
-
-        _writeFile(_logFileMotion, csv);
+      _motionWriteBufferCount++;
+      _motionWriteBuffer.add(csv);
+      if (_motionWriteBufferCount >= 20) {
+        _writeFile(_logFileMotion, _motionWriteBuffer.join());
+        _motionWriteBuffer.clear();
+        _motionWriteBufferCount = 0;
       }
+
+      // csv = timestamp +
+      //     ";" +
+      //     now.millisecondsSinceEpoch.toString() +
+      //     ";" +
+      //     _motion.toString() +
+      //     ";\n";
+
+      // }
+
+      _previousAcc[0] = accX.toDouble();
+      _previousAcc[1] = accY.toDouble();
+      _previousAcc[2] = accZ.toDouble();
+      // else {
+      //   List<int> newestDiff = [];
+      //   newestDiff.add(accX - _accDiffQueue.last[0]);
+      //   newestDiff.add(accY - _accDiffQueue.last[1]);
+      //   newestDiff.add(accZ - _accDiffQueue.last[2]);
+
+      // }
 
       // setState(() {
       //   _accX = accX.toString() + " (unknown unit)";
@@ -622,10 +676,13 @@ class _TrackingTabState extends State<TrackingTab>
                     onPressed: _spotifyConnected ? _toggleSpotify : null,
                     icon: _spotifyPlayPauseIcon,
                   ),
-                  Text(
-                    _spotifyTrack,
-                    style: const TextStyle(fontSize: 15),
-                  ),
+                  Flexible(
+                    child: Text(
+                      _spotifyTrack,
+                      style: const TextStyle(fontSize: 15),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  )
                 ],
               )),
               Card(
@@ -682,7 +739,7 @@ class _TrackingTabState extends State<TrackingTab>
                                 child: ElevatedButton(
                                   onPressed: () {
                                     _measureHRBaseline(
-                                        const Duration(seconds: 5));
+                                        const Duration(seconds: 30));
                                   },
                                   child: const Text(
                                     "Measure",
@@ -725,11 +782,12 @@ class _TrackingTabState extends State<TrackingTab>
                                       style: TextStyle(fontSize: 15),
                                     ),
                                     Text(
+                                      // _motion.round().toString(),
                                       "$_motion",
                                       style: const TextStyle(fontSize: 100),
                                     ),
                                     const Text(
-                                      "%",
+                                      "score",
                                       style: TextStyle(fontSize: 15),
                                     )
                                   ],
@@ -756,25 +814,25 @@ class _TrackingTabState extends State<TrackingTab>
                                 )
                               ],
                             ),
-                            Row(
-                              children: [
-                                // Text("$_currentVolume"),
-                                ElevatedButton(
-                                    onPressed: () async {
-                                      // _rampVolume(
-                                      //     0,
-                                      //     Math.max(
-                                      //         (5 / _currentVolume).round(), 1));
-                                      _sleepDetected();
-                                    },
-                                    child: const Text("sleep detect")),
-                                ElevatedButton(
-                                    onPressed: () {
-                                      _motionDetected();
-                                    },
-                                    child: const Text("motion"))
-                              ],
-                            ),
+                            // Row(
+                            //   children: [
+                            //     // Text("$_currentVolume"),
+                            //     ElevatedButton(
+                            //         onPressed: () async {
+                            //           // _rampVolume(
+                            //           //     0,
+                            //           //     Math.max(
+                            //           //         (5 / _currentVolume).round(), 1));
+                            //           _sleepDetected();
+                            //         },
+                            //         child: const Text("sleep detect")),
+                            //     ElevatedButton(
+                            //         onPressed: () {
+                            //           _motionDetected();
+                            //         },
+                            //         child: const Text("motion"))
+                            //   ],
+                            // ),
                             Expanded(
                               child: Align(
                                 alignment: Alignment.bottomCenter,
