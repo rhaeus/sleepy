@@ -16,6 +16,7 @@ import 'package:volume/volume.dart';
 import 'dart:math' as math;
 
 import 'spotify_config.dart' as spotify_config;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'utils.dart';
 
@@ -77,10 +78,42 @@ class _TrackingTabState extends State<TrackingTab>
   _TrackingTabState() {
     _connectCosinuss();
     _connectSpotify();
+    _restoreRestingHR();
+    _restoreSleepTimer();
   }
 
   Future<void> _writeFile(File file, String text) async {
     await file.writeAsString(text, mode: FileMode.append, flush: true);
+  }
+
+  _restoreRestingHR() async {
+    final prefs = await SharedPreferences.getInstance();
+    const key = 'restingHR';
+    setState(() {
+      _restingHeartRate = prefs.getInt(key) ?? 70; // default 70bpm
+    });
+  }
+
+  void _saveRestingHR() async {
+    final prefs = await SharedPreferences.getInstance();
+    const key = 'restingHR';
+    prefs.setInt(key, _restingHeartRate);
+  }
+
+  _restoreSleepTimer() async {
+    final prefs = await SharedPreferences.getInstance();
+    const key = 'sleepTimer';
+    var seconds = prefs.getInt(key) ?? 1800; // default 30min
+    setState(() {
+      _sleepTimerDuration = Duration(seconds: seconds);
+      _sleepTimerDurationDisplay = formatDuration(_sleepTimerDuration);
+    });
+  }
+
+  void _saveSleepTimer() async {
+    final prefs = await SharedPreferences.getInstance();
+    const key = 'sleepTimer';
+    prefs.setInt(key, _sleepTimerDuration.inSeconds);
   }
 
   void _toggleTracking() async {
@@ -178,8 +211,10 @@ class _TrackingTabState extends State<TrackingTab>
     // Volume.setVol(_startingVolume);
 
     _trackingStopwatch.stop();
-
+    _volumeRampTimer?.cancel();
+    _motionTimer?.cancel();
     _trackingDurationUpdateTimer.cancel();
+
     setState(() {
       _trackingStarted = false;
       _trackingButtonText = "Start";
@@ -511,6 +546,7 @@ class _TrackingTabState extends State<TrackingTab>
       if (duration != null) {
         _sleepTimerDuration = duration;
         _sleepTimerDurationDisplay = formatDuration(duration);
+        _saveSleepTimer();
       }
     });
   }
@@ -542,7 +578,7 @@ class _TrackingTabState extends State<TrackingTab>
 
   Timer? _hrBaseLineTimer;
   bool _hrBaselineMeasure = false;
-  List<int> _hrForBaseline = [];
+  final List<int> _hrForBaseline = [];
   void _measureHRBaseline(Duration duration) {
     _hrForBaseline.clear();
     _hrBaselineMeasure = true;
@@ -562,9 +598,12 @@ class _TrackingTabState extends State<TrackingTab>
           int sum =
               _hrForBaseline.fold(0, (previous, current) => previous + current);
           _restingHeartRate = (sum / _hrForBaseline.length).round();
-        } else {
-          _restingHeartRate = 0;
         }
+        // else use previous
+        // else {
+        //   _restingHeartRate = 70;
+        // }
+        _saveRestingHR();
         log("resting HR: " + _restingHeartRate.toString());
       });
     });
@@ -594,8 +633,8 @@ class _TrackingTabState extends State<TrackingTab>
     log("sleep detetcted");
     _currentVolume = await Volume.getVol;
     _startingVolume = _currentVolume;
-    _rampVolume(2, 1);
-    _checkForMotion(const Duration(minutes: 5));
+    _rampVolume(2, 5);
+    _checkForMotion(const Duration(minutes: 3));
   }
 
   @override
