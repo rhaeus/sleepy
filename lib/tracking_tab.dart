@@ -17,6 +17,7 @@ import 'dart:math' as math;
 
 import 'spotify_config.dart' as spotify_config;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import 'utils.dart';
 
@@ -72,6 +73,13 @@ class _TrackingTabState extends State<TrackingTab>
 
   late DateTime _startTime;
 
+  Future<void> _initPermission() async {
+    var status = await Permission.storage.status;
+    if (!status.isGranted) {
+      await Permission.storage.request();
+    }
+  }
+
   @override
   bool get wantKeepAlive => true;
 
@@ -80,6 +88,7 @@ class _TrackingTabState extends State<TrackingTab>
     _connectSpotify();
     _restoreRestingHR();
     _restoreSleepTimer();
+    _initPermission();
   }
 
   Future<void> _writeFile(File file, String text) async {
@@ -116,11 +125,11 @@ class _TrackingTabState extends State<TrackingTab>
     prefs.setInt(key, _sleepTimerDuration.inSeconds);
   }
 
-  void _toggleTracking() async {
+  void _toggleTracking() {
     if (_trackingStarted) {
       _stopTracking();
     } else {
-      await _startTracking();
+      _startTracking();
     }
   }
 
@@ -132,7 +141,8 @@ class _TrackingTabState extends State<TrackingTab>
 
   Future<void> _initLogFiles() async {
     var format = DateFormat('yyyy-MM-dd-HH-mm-ss');
-    String timestamp = format.format(DateTime.now());
+    _startTime = DateTime.now();
+    String timestamp = format.format(_startTime);
 
     _logFileHR = File(_logDir + timestamp + "_hr.csv");
     _logFileMotion = File(_logDir + timestamp + "_motion.csv");
@@ -170,8 +180,6 @@ class _TrackingTabState extends State<TrackingTab>
 
     _startTrackingStopWatch();
     _startSleepTimer();
-
-    _startTime = DateTime.now();
 
     _accDiffQueue.clear();
     for (int i = 0; i < _accWindowSize; ++i) {
@@ -579,9 +587,11 @@ class _TrackingTabState extends State<TrackingTab>
   Timer? _hrBaseLineTimer;
   bool _hrBaselineMeasure = false;
   final List<int> _hrForBaseline = [];
+  Timer? _hrCountdownTimer;
   void _measureHRBaseline(Duration duration) {
     _hrForBaseline.clear();
     _hrBaselineMeasure = true;
+    var countdown = duration;
 
     showMessage(
         context,
@@ -589,15 +599,27 @@ class _TrackingTabState extends State<TrackingTab>
             duration.inSeconds.toString() +
             " seconds for measurement to complete");
 
+    _hrCountdownTimer = Timer.periodic(
+        const Duration(seconds: 1),
+        (Timer t) => setState(() {
+              countdown -= const Duration(seconds: 1);
+              _trackingDuration = formatDuration(countdown);
+            }));
+
     _hrBaseLineTimer = Timer(duration, () {
-      showMessage(context, "Measurement complete");
       log("HR baseline measurement done");
+      _hrCountdownTimer!.cancel();
+      _trackingDuration = formatDuration(const Duration(seconds: 0));
       _hrBaselineMeasure = false;
       setState(() {
         if (_hrForBaseline.isNotEmpty) {
+          showMessage(context, "Measurement complete");
           int sum =
               _hrForBaseline.fold(0, (previous, current) => previous + current);
           _restingHeartRate = (sum / _hrForBaseline.length).round();
+        } else {
+          showMessage(
+              context, "Couldn't measure heart rate. Using previous value");
         }
         // else use previous
         // else {
@@ -692,7 +714,11 @@ class _TrackingTabState extends State<TrackingTab>
                       children: [
                     IconButton(
                       iconSize: 40,
-                      onPressed: _useSleepTimer ? _pickSleepTimer : null,
+                      onPressed: (_useSleepTimer &&
+                              !_hrBaselineMeasure &&
+                              !_trackingStarted)
+                          ? _pickSleepTimer
+                          : null,
                       icon: const Icon(Icons.access_time),
                     ),
                     Text(
@@ -706,11 +732,13 @@ class _TrackingTabState extends State<TrackingTab>
                       alignment: Alignment.centerRight,
                       child: Switch(
                           value: _useSleepTimer,
-                          onChanged: (bool value) {
-                            setState(() {
-                              _useSleepTimer = value;
-                            });
-                          }),
+                          onChanged: (_hrBaselineMeasure || _trackingStarted)
+                              ? null
+                              : (bool value) {
+                                  setState(() {
+                                    _useSleepTimer = value;
+                                  });
+                                }),
                     )),
                   ])),
               Card(
@@ -728,9 +756,9 @@ class _TrackingTabState extends State<TrackingTab>
                       "Heart rate base line: " +
                           _restingHeartRate.toString() +
                           " bpm",
-                      style: TextStyle(
-                          fontSize: 15,
-                          color: _useSleepTimer ? Colors.white : Colors.grey),
+                      style: const TextStyle(
+                        fontSize: 15,
+                      ),
                     ),
                     Expanded(
                         child: Align(
@@ -738,10 +766,13 @@ class _TrackingTabState extends State<TrackingTab>
                             child: Padding(
                                 padding: const EdgeInsets.all(5),
                                 child: ElevatedButton(
-                                  onPressed: () {
-                                    _measureHRBaseline(
-                                        const Duration(seconds: 30));
-                                  },
+                                  onPressed:
+                                      (_hrBaselineMeasure || _trackingStarted)
+                                          ? null
+                                          : () {
+                                              _measureHRBaseline(
+                                                  const Duration(seconds: 30));
+                                            },
                                   child: const Text(
                                     "Measure",
                                     style: TextStyle(fontSize: 15),
@@ -841,9 +872,9 @@ class _TrackingTabState extends State<TrackingTab>
                                     width: double.infinity,
                                     height: 80,
                                     child: ElevatedButton(
-                                        onPressed: _trackingStarted
-                                            ? _stopTracking
-                                            : _startTracking,
+                                        onPressed: _hrBaselineMeasure
+                                            ? null
+                                            : _toggleTracking,
                                         child: Text(
                                           _trackingButtonText,
                                           style: const TextStyle(fontSize: 25),
