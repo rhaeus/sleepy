@@ -63,7 +63,9 @@ class _StatsRecordDetailPage extends State<RecordDetailPage> {
             motionList.add(motion);
             if (motion.value < _minMotion) {
               _minMotion = motion.value;
-            } else if (motion.value > _maxMotion) {
+            }
+
+            if (motion.value > _maxMotion) {
               _maxMotion = motion.value;
             }
           }

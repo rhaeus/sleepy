@@ -26,10 +26,16 @@ class _StatsTabState extends State<StatsTab>
   Duration _avgDuration = Duration();
 
   _StatsTabState() {
-    Future.delayed(Duration.zero, () async {
-      //your async 'await' codes goes here
-      await getRecords();
-    });
+    // Future.delayed(Duration.zero, () async {
+    //   //your async 'await' codes goes here
+    //   await getRecords();
+    // });
+    // getRecords();
+  }
+
+  @override
+  void initState() {
+    getRecords();
   }
 
   Future<void> getRecords() async {
@@ -48,7 +54,8 @@ class _StatsTabState extends State<StatsTab>
 
           if (record.duration < _minDuration) {
             _minDuration = record.duration;
-          } else if (record.duration > _maxDuration) {
+          }
+          if (record.duration > _maxDuration) {
             _maxDuration = record.duration;
           }
 
@@ -127,7 +134,7 @@ class _StatsTabState extends State<StatsTab>
                       lineStyle: charts.LineStyleSpec(
                           color: charts.Color.fromHex(code: "#808080"))),
                   viewport: charts.NumericExtents(
-                      _minDuration.inMinutes, _maxDuration.inMinutes),
+                      _minDuration.inMinutes - 1, _maxDuration.inMinutes + 1),
                 ),
                 // lineStyle: charts.LineStyleSpec(
                 //     color: charts.MaterialPalette.white))),
