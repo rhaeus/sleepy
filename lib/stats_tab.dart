@@ -6,6 +6,7 @@ import 'details_page.dart';
 import 'record.dart';
 import 'package:charts_flutter/flutter.dart' as charts;
 import 'utils.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class StatsTab extends StatefulWidget {
   const StatsTab({Key? key}) : super(key: key);
@@ -39,6 +40,18 @@ class _StatsTabState extends State<StatsTab>
   }
 
   Future<void> getRecords() async {
+    var status = await Permission.storage.status;
+    if (!status.isGranted) {
+      var stat = await Permission.storage.request();
+      int i = 0;
+    }
+
+    status = await Permission.accessMediaLocation.status;
+    if (!status.isGranted) {
+      var stat = await Permission.accessMediaLocation.request();
+      int i = 0;
+    }
+
     File _logFileDur = File(_logDir + "durations.csv");
     await _logFileDur
         .openRead()

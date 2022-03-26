@@ -2,8 +2,14 @@ import 'package:flutter/material.dart';
 
 import 'tracking_tab.dart';
 import 'stats_tab.dart';
+// import 'package:permission_handler/permission_handler.dart';
 
 void main() {
+  // var status = await Permission.storage.status;
+  //                 if (!status.isGranted) {
+  //                   await Permission.storage.request();
+  //                 }
+
   runApp(const TabBarApp());
 }
 

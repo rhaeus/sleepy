@@ -18,6 +18,7 @@ import 'dart:math' as math;
 import 'spotify_config.dart' as spotify_config;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:permission_handler/permission_handler.dart';
+// import 'package:simple_permissions/simple_permissions.dart' as perm;
 
 import 'utils.dart';
 
@@ -76,8 +77,16 @@ class _TrackingTabState extends State<TrackingTab>
   Future<void> _initPermission() async {
     var status = await Permission.storage.status;
     if (!status.isGranted) {
-      await Permission.storage.request();
+      var stat = await Permission.storage.request();
+      int i = 0;
     }
+
+    // perm.PermissionStatus permissionResult =
+    //     await perm.SimplePermissions.requestPermission(
+    //         perm.Permission.WriteExternalStorage);
+    // if (permissionResult == perm.PermissionStatus.authorized) {
+    //   // code of read or write file in external storage (SD card)
+    // }
   }
 
   @override
@@ -88,7 +97,7 @@ class _TrackingTabState extends State<TrackingTab>
     _connectSpotify();
     _restoreRestingHR();
     _restoreSleepTimer();
-    _initPermission();
+    // _initPermission();
   }
 
   Future<void> _writeFile(File file, String text) async {
@@ -865,6 +874,13 @@ class _TrackingTabState extends State<TrackingTab>
                             //         child: const Text("motion"))
                             //   ],
                             // ),
+                            Row(
+                              children: [
+                                ElevatedButton(
+                                    onPressed: _initPermission,
+                                    child: const Text("Permission"))
+                              ],
+                            ),
                             Expanded(
                               child: Align(
                                 alignment: Alignment.bottomCenter,
